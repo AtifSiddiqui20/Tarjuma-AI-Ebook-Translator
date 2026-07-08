@@ -1,11 +1,14 @@
+import languages from '../data/languages.json'
+
+
 function Settings({ 
   ollamaUrl, setOllamaUrl,
-  model, setModel,
+  model, setModel, models,
+  modelsLoading, modelsError,
   srcLang, setSrcLang,
   tgtLang, setTgtLang,
   temperature, setTemperature,
-  chunkSize, setChunkSize,
-  systemPrompt, setSystemPrompt
+  chunkSize, setChunkSize, systemPrompt
 }) {
   return (
     <div className="panel">
@@ -13,22 +16,69 @@ function Settings({
 
       <div className="field">
         <label>Ollama URL</label>
-        <input type="text" value={ollamaUrl} onChange={e => setOllamaUrl(e.target.value)} />
+        <input
+          type="text"
+          value={ollamaUrl}
+          onChange={e => setOllamaUrl(e.target.value)}
+        />
       </div>
 
       <div className="field">
         <label>Model</label>
-        <input type="text" value={model} onChange={e => setModel(e.target.value)} />
+        {modelsError ? (
+          <div className="models-error">{modelsError}</div>
+        ) : (
+          <select
+            value={model}
+            onChange={e => setModel(e.target.value)}
+            disabled={modelsLoading}
+          >
+            {modelsLoading && (
+              <option>Loading models…</option>
+            )}
+            {models.map(m => (
+              <option key={m.name} value={m.name}>{m.name}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="field">
         <label>Source language</label>
-        <input type="text" value={srcLang} onChange={e => setSrcLang(e.target.value)} />
+        <select 
+          value={srcLang.code} 
+          onChange={e => {
+            const selected = languages.find(
+              lang => lang.code === e.target.value
+            );
+            setSrcLang(selected);
+          }}
+      >
+          {languages.map(lang => (
+            <option key={lang.code} value={lang.code}>
+              {lang.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="field">
         <label>Target language</label>
-        <input type="text" value={tgtLang} onChange={e => setTgtLang(e.target.value)} />
+        <select 
+          value={tgtLang.code} 
+          onChange={e => {
+            const selected = languages.find(
+              lang => lang.code === e.target.value
+            );
+            setTgtLang(selected);
+          }}
+        >
+          {languages.map(lang => (
+            <option key={lang.code} value={lang.code}>
+              {lang.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="field">
@@ -57,7 +107,8 @@ function Settings({
         <textarea
           rows="5"
           value={systemPrompt}
-          onChange={e => setSystemPrompt(e.target.value)}
+          onChange={e => {}}
+          //readOnly
         />
       </div>
     </div>

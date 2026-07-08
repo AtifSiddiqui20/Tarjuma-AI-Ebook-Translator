@@ -1,87 +1,155 @@
-
-
-
-import { useState, useRef } from 'react'
-import './App.css'
-import Settings from './components/Settings'
-import FileUpload from './components/FileUpload'
-import ProgressPanel from './components/ProgressPanel'
-import OutputPanel from './components/OutputPanel'
-import { chunkText } from './utils/chunker'
-import { translateChunk, streamResponse } from './utils/ollamaApi'
+import { useState, useRef, useEffect } from "react";
+import "./App.css";
+import Settings from "./components/Settings";
+import FileUpload from "./components/FileUpload";
+import ProgressPanel from "./components/ProgressPanel";
+import OutputPanel from "./components/OutputPanel";
+import { chunkText } from "./utils/chunker";
+import { buildPrompt } from "./utils/buildPrompt";
+import { getModels, translateChunk, streamResponse } from "./utils/ollamaApi";
 
 function App() {
-  const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
-  const [model, setModel] = useState('translategemma:12b')
-  const [srcLang, setSrcLang] = useState('English')
-  const [tgtLang, setTgtLang] = useState('Urdu')
-  const [temperature, setTemperature] = useState(0.2)
-  const [chunkSize, setChunkSize] = useState(600)
-  const [systemPrompt, setSystemPrompt] = useState('You are a professional English to Urdu literary translator with expertise in translating books, novels, and long-form prose. Your goal is accuracy, naturalness, and preserving the author\'s voice and tone. Output only the translated text, nothing else.')
+  const [ollamaUrl, setOllamaUrl] = useState("http://localhost:11434");
+  const [model, setModel] = useState("translategemma:12b");
+  const [srcLang, setSrcLang] = useState({ name: "English", code: "en" });
+  const [tgtLang, setTgtLang] = useState({ name: "Urdu", code: "ur" });
+  const [temperature, setTemperature] = useState(0.2);
+  const [chunkSize, setChunkSize] = useState(1000);
+  const [chapterMap, setChapterMap] = useState({});
+  const systemPrompt = buildPrompt({
+    srcLang: srcLang.name,
+    srcCode: srcLang.code,
+    tgtLang: tgtLang.name,
+    tgtCode: tgtLang.code,
+  });
 
-  const [fileText, setFileText] = useState(null)
-  const [fileName, setFileName] = useState(null)
-  const [fileSize, setFileSize] = useState(null)
+  const [fileText, setFileText] = useState(null);
+  const [fileName, setFileName] = useState(null);
+  const [fileSize, setFileSize] = useState(null);
 
-  const [chunks, setChunks] = useState([])
-  const [chunkStatuses, setChunkStatuses] = useState([])
-  const [output, setOutput] = useState([])
-  const [isRunning, setIsRunning] = useState(false)
-  const stopFlag = useRef(false)
+  const [chunks, setChunks] = useState([]);
+  const [chunkStatuses, setChunkStatuses] = useState([]);
+  const [output, setOutput] = useState([]);
+  const [isRunning, setIsRunning] = useState(false);
+  const stopFlag = useRef(false);
+  const [models, setModels] = useState([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState(null);
 
-  function handleFileLoaded(name, text, size) {
-    setFileName(name)
-    setFileSize(size)
-    setFileText(text)
-    const newChunks = chunkText(text, chunkSize)
-    setChunks(newChunks)
-    setChunkStatuses(new Array(newChunks.length).fill('pending'))
-    setOutput(new Array(newChunks.length).fill(''))
+  const [languages, setLanguages] = useState([]);
+  const [bookMeta, setBookMeta] = useState(null);
+  const [fileType, setFileType] = useState(null);
+  const [chapters, setChapters] = useState([]);
+
+  useEffect(() => {
+    setLanguages(languages);
+  }, []);
+
+  useEffect(() => {
+    async function fetchModels() {
+      setModelsLoading(true);
+      setModelsError(null);
+      try {
+        const result = await getModels(ollamaUrl);
+        setModels(result);
+      } catch (err) {
+        setModelsError("Could not reach Ollama — is it running?");
+        setModels([]);
+      }
+      setModelsLoading(false);
+    }
+    fetchModels();
+  }, [ollamaUrl]);
+
+  function handleFileLoaded(name, text, size, type, parsedEpub) {
+    setFileName(name);
+    setFileSize(size);
+    setFileText(text);
+    setFileType(type);
+
+    if (type === "txt") {
+      const newChunks = chunkText(text, chunkSize);
+      setChunks(newChunks);
+      setChunkStatuses(new Array(newChunks.length).fill("pending"));
+      setOutput(new Array(newChunks.length).fill(""));
+      setChapters([]);
+      setBookMeta(null);
+    } else if (type === "epub") {
+      setBookMeta({ title: parsedEpub.title, author: parsedEpub.author });
+      setChapters(parsedEpub.chapters);
+
+      const allChunks = [];
+      const map = []; // each entry: { chapterIndex, title }
+
+      for (let i = 0; i < parsedEpub.chapters.length; i++) {
+        const chapter = parsedEpub.chapters[i];
+        const chapterChunks = chunkText(chapter.text, chunkSize);
+        for (let j = 0; j < chapterChunks.length; j++) {
+          allChunks.push(chapterChunks[j]);
+          map.push({ chapterIndex: i, title: chapter.title });
+        }
+      }
+
+      setChunks(allChunks);
+      setChapterMap(map);
+      setChunkStatuses(new Array(allChunks.length).fill("pending"));
+      setOutput(new Array(allChunks.length).fill(""));
+      setFileText(null);
+    }
   }
 
   async function handleTranslate() {
-  if (!fileText || isRunning) return
-  setIsRunning(true)
-  stopFlag.current = false        // ← .current instead of setStopFlag
+    if (chunks.length === 0 || isRunning) return;
+    setIsRunning(true);
+    stopFlag.current = false;
 
-  const newChunks = chunkText(fileText, chunkSize)
-  setChunks(newChunks)
-  const statuses = new Array(newChunks.length).fill('pending')
-  const outputs = new Array(newChunks.length).fill('')
-  setChunkStatuses([...statuses])
-  setOutput([...outputs])
+    const workingChunks =
+      fileType === "epub" ? chunks : chunkText(fileText, chunkSize);
 
-  for (let i = 0; i < newChunks.length; i++) {
-    if (stopFlag.current) break    // ← .current instead of stopFlag
-
-    statuses[i] = 'running'
-    setChunkStatuses([...statuses])
-
-    try {
-      const response = await translateChunk(
-        ollamaUrl, model, systemPrompt, newChunks[i], temperature
-      )
-      await streamResponse(response, (text) => {
-        outputs[i] = text
-        setOutput([...outputs])
-      })
-      statuses[i] = 'done'
-    } catch (err) {
-      statuses[i] = 'error'
-      outputs[i] = `[Error: ${err.message}]`
+    if (fileType !== "epub") {
+      setChunks(workingChunks);
     }
 
-    setChunkStatuses([...statuses])
-    setOutput([...outputs])
+    const statuses = new Array(workingChunks.length).fill("pending");
+    const outputs = new Array(workingChunks.length).fill("");
+    setChunkStatuses([...statuses]);
+    setOutput([...outputs]);
+
+    for (let i = 0; i < workingChunks.length; i++) {
+      if (stopFlag.current) break;
+
+      statuses[i] = "running";
+      setChunkStatuses([...statuses]);
+
+      try {
+        const response = await translateChunk(
+          ollamaUrl,
+          model,
+          systemPrompt,
+          workingChunks[i],
+          temperature,
+        );
+        await streamResponse(response, (text) => {
+          outputs[i] = text;
+          setOutput([...outputs]);
+        });
+        statuses[i] = "done";
+      } catch (err) {
+        statuses[i] = "error";
+        outputs[i] = `[Error: ${err.message}]`;
+      }
+
+      setChunkStatuses([...statuses]);
+      setOutput([...outputs]);
+    }
+
+    setIsRunning(false);
   }
 
-  setIsRunning(false)
-}
-
   function handleStop() {
-  stopFlag.current = true     
-  setIsRunning(false)
-}
+    stopFlag.current = true;
+    setIsRunning(false);
+  }
 
   return (
     <div className="app">
@@ -96,13 +164,22 @@ function App() {
       <div className="layout">
         <aside className="sidebar">
           <Settings
-            ollamaUrl={ollamaUrl} setOllamaUrl={setOllamaUrl}
-            model={model} setModel={setModel}
-            srcLang={srcLang} setSrcLang={setSrcLang}
-            tgtLang={tgtLang} setTgtLang={setTgtLang}
-            temperature={temperature} setTemperature={setTemperature}
-            chunkSize={chunkSize} setChunkSize={setChunkSize}
-            systemPrompt={systemPrompt} setSystemPrompt={setSystemPrompt}
+            ollamaUrl={ollamaUrl}
+            setOllamaUrl={setOllamaUrl}
+            model={model}
+            setModel={setModel}
+            models={models}
+            modelsLoading={modelsLoading}
+            modelsError={modelsError}
+            srcLang={srcLang}
+            setSrcLang={setSrcLang}
+            tgtLang={tgtLang}
+            setTgtLang={setTgtLang}
+            temperature={temperature}
+            setTemperature={setTemperature}
+            chunkSize={chunkSize}
+            setChunkSize={setChunkSize}
+            systemPrompt={systemPrompt}
           />
           <FileUpload
             fileName={fileName}
@@ -126,11 +203,15 @@ function App() {
           <OutputPanel
             output={output}
             fileName={fileName}
+            fileType={fileType}
+            bookMeta={bookMeta}
+            chapters={chapters}
+            chapterMap={chapterMap}
           />
         </main>
       </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

@@ -1,5 +1,5 @@
 function ProgressPanel({ chunks, chunkStatuses, isRunning }) {
-  if (chunks.length === 0) return null
+  //if (chunks.length === 0) return null
 
   const doneCount = chunkStatuses.filter(s => s === 'done').length
   const pct = Math.round((doneCount / chunks.length) * 100)
@@ -10,13 +10,17 @@ function ProgressPanel({ chunks, chunkStatuses, isRunning }) {
 
       <div className="progress-header">
         <span className="progress-status">
-          {isRunning ? `Translating chunk ${doneCount + 1} of ${chunks.length}…` : `Done — ${doneCount} of ${chunks.length} chunks`}
+          {!isRunning && chunks.length === 0 ? (<p> No translation in progress </p>) : (
+            isRunning ? `Translating chunk ${doneCount + 1} of ${chunks.length}…` : `Done — ${doneCount} of ${chunks.length} chunks`
+          )}
         </span>
-        <span className="progress-pct">{pct}%</span>
+        <span className="progress-pct">{isRunning && chunks.length > 0 ? `${pct}%` : null}</span>
       </div>
 
       <div className="progress-track">
-        <div className="progress-fill" style={{ width: pct + '%' }} />
+        {isRunning && chunks.length > 0 && (
+          <div className="progress-fill" style={{ width: pct + '%' }} />
+        )}
       </div>
 
       <div className="chunk-list">
