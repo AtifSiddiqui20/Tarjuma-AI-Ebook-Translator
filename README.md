@@ -5,7 +5,7 @@
 ---
 
 
-![Demo](images\Demo.gif)
+![Demo](images/Demo.gif)
 ## What is it?
 Tarjuma translates `.txt` and `.epub` files between languages using a locally 
 running AI model via Ollama. No data leaves your machine.
@@ -38,7 +38,7 @@ OLLAMA_ORIGINS="*" ollama serve
 ```
 
 You can also use the desktop app of Ollama. Simply open the app, head to settings, and enable the option 'Expose Ollama on the Network'
-![Alternative description text](images\OllamaCORS.PNG)
+![Alternative description text](images/OllamaCORS.PNG)
 
 **2. Pull a translation model**
 ```bash
